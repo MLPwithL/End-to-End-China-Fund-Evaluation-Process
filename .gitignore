@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+
+# VSCode
+.vscode/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# 数据文件
+*.csv
+*.xlsx
+*.xls
+*.parquet
+
+# 模型文件
+*.pkl
+*.joblib
+
+# 日志
+*.log
+
+# Mac
+.DS_Store

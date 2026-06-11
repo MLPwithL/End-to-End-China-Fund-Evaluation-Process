@@ -1,10 +1,8 @@
-# 正则化基金评价复现 (Regularized Fund Evaluation Replication)
-
-English version:[`README_EN`](./README_EN.md)
+# 正则化基金评价复现
 
 本项目用于复现东吴证券金融工程报告《正则化基金评价 2021Q3 组合》（2021 年 7 月 3 日）中的基金评价框架，并在此基础上实现数据清洗、正则化回归、持仓暴露融合、基金能力评分、季度滚动选基和样本外回测。
 
-项目的核心研究对象是主动股票型及偏股混合型公募基金。主要入口为 [`fun_RR_plus.ipynb`](./fun_RR_plus.ipynb)，各数据准备 notebook、字段说明和完整文件盘点见 [`summary.md`](./summary.md)。
+项目的核心研究对象是主动股票型及偏股混合型公募基金。当前主要入口为 [`fun_RR_plus.ipynb`](./fun_RR_plus.ipynb)，旧版 [`fun_RR.ipynb`](./fun_RR.ipynb) 保留用于口径对照；各数据准备 notebook、字段说明和完整文件盘点见 [`summary.md`](./summary.md)。
 
 > 本项目是研究复现，不构成投资建议。报告与代码均基于历史数据，实际使用仍需考虑数据质量、交易成本、申赎限制、组合容量和风险控制。
 
@@ -30,11 +28,12 @@ English version:[`README_EN`](./README_EN.md)
 
 | 内容 | 文件 |
 |---|---|
-| 主回测程序 | [`fun_RR.ipynb`](./fun_RR.ipynb) |
+| 当前主回测程序 | [`fun_RR_plus.ipynb`](./fun_RR_plus.ipynb) |
+| 旧版主流程 | [`fun_RR.ipynb`](./fun_RR.ipynb) |
 | 单窗口模型原型 | [`RR.ipynb`](./RR.ipynb) |
 | NAV 交易日对齐 | [`navtotradeday.ipynb`](./navtotradeday.ipynb) |
 | 全部 notebook 中文总结 | [`summary.md`](./summary.md) |
-| notebook English summary | [`summary_EN.md`](./summary_EN.md) |
+| 全部 notebook 英文总结 | [`summary_EN.md`](./summary_EN.md) |
 | 数据结构盘点 | [`data_schema.md`](./data_schema.md) |
 
 ## 1. 研究报告
@@ -177,18 +176,18 @@ $$
 
 报告对择时能力的直观解释是：基金经理能否在市场上涨时提高仓位、下跌时降低仓位。
 
-当前代码使用最近两期可用半年报/年报的总股票持仓变化，并乘以两期报告之间的沪深 300 累计收益：
+当前 `fun_RR_plus.ipynb` 使用第二次、完全独立的传统 Treynor-Mazuy 回归计算择时能力：
 
 $$
-TimingAbility
+r_t
 =
-\left(
-Holding_{latest} - Holding_{previous}
-\right)
-\times MarketReturn
+\alpha_{TM}
++ \beta_{m,TM}r_{m,t}
++ \gamma r_{m,t}^{2}
++ \varepsilon_t
 $$
 
-该指标为项目中的具体实现。报告正文展示了择时能力的组合结果和经济含义，但本期报告附录没有完整展开其计算公式。
+其中 $\gamma$ 为择时能力。该回归与原选股归因回归分开执行，只使用基金收益、市场收益及市场收益平方项，不加入行业或 Barra 风格因子，也不施加暴露约束和正则项。`tm_alpha`、`tm_beta` 和 $\gamma$ 通过普通最小二乘法独立估计。各基金通过 `joblib.Parallel` 并行求解，随后将 `timing_ability = gamma` 转为 0 至 100 的百分位分数并排序。
 
 ### 2.6 综合能力
 
@@ -216,7 +215,7 @@ $$
 - 每个评价维度展示 TOP15 样本组合；
 - 完整 FOF 组合使用能力排名最高的 10% 基金。
 
-当前 `fun_RR.ipynb` 已实现：
+当前 `fun_RR_plus.ipynb` 已实现：
 
 - 窗口内至少 120 个基金观测日；
 - 基金存在资产规模大于 1 亿元的记录；
@@ -280,7 +279,7 @@ $$
 | 数据类别 | 当前主要文件 | 用途 |
 |---|---|---|
 | 基金日频 NAV | `基金数据/交易日偏股型基金.feather` | 基金收益率、基金规模、样本外收益 |
-| 基金股票持仓 | `基金数据/CHINAMUTUALFUNDSTOCKPORTFOLIO.feather` | 持仓仓位、持仓风格暴露、择时能力 |
+| 基金股票持仓 | `基金数据/CHINAMUTUALFUNDSTOCKPORTFOLIO.feather` | 持仓风格暴露 |
 | 基金经理 | `基金数据/CHINAMUTUALFUNDMANAGER_202605221351(1).csv` | 基金经理匹配和去重 |
 | 基金描述 | `基金数据/CHINAMUTUALFUNDDESCRIPTION_202606031717.csv` | 基金类型、基金公司和基金基本信息 |
 | 宽基指数收益 | `宽基指数日行情/宽基指数收益率.csv` | 市场因子、交易日历和市场累计收益 |
@@ -294,6 +293,7 @@ $$
 
 ```text
 .
+├── fun_RR_plus.ipynb
 ├── fun_RR.ipynb
 ├── RR.ipynb
 ├── navtotradeday.ipynb
@@ -319,7 +319,8 @@ $$
 
 核心文件：
 
-- [`fun_RR.ipynb`](./fun_RR.ipynb)：函数化、多窗口滚动回测主程序。
+- [`fun_RR_plus.ipynb`](./fun_RR_plus.ipynb)：当前函数化、多窗口滚动回测主程序，包含新择时能力、IC/Rank IC 和经理去重兼容修复。
+- [`fun_RR.ipynb`](./fun_RR.ipynb)：旧版函数化主流程，保留用于结果和口径对照。
 - [`RR.ipynb`](./RR.ipynb)：单窗口逐步骤原型，适合查看模型构建过程。
 - [`navtotradeday.ipynb`](./navtotradeday.ipynb)：基金 NAV 日期与交易日对齐。
 - [`基金数据/Seperate_Fund.ipynb`](./基金数据/Seperate_Fund.ipynb)：基金分类与基础数据整理。
@@ -328,7 +329,7 @@ $$
 - [`宽基指数日行情/Return_Summary.ipynb`](./宽基指数日行情/Return_Summary.ipynb)：宽基指数收益率生成。
 - [`申万一级行业/Return_Summary.ipynb`](./申万一级行业/Return_Summary.ipynb)：申万行业收益率生成。
 - [`Barra_CNE5/SeperateBarraFactor.ipynb`](./Barra_CNE5/SeperateBarraFactor.ipynb)：Barra 因子收益率拆分。
-- [`summary.md`](./summary.md)：全部 14 个 notebook 的工作和数据引用明细。
+- [`summary.md`](./summary.md)：全部 15 个 notebook 的工作和数据引用明细。
 - [`data_schema.md`](./data_schema.md)：早期数据盘点和字段说明，部分文件名已经过时。
 
 ## 7. 环境依赖
@@ -343,6 +344,7 @@ numpy
 pyarrow
 cvxpy
 joblib
+scipy
 python-calamine
 matplotlib
 jupyter
@@ -350,13 +352,13 @@ jupyter
 
 回归求解器：
 
-- `fun_RR.ipynb` 默认使用 CVXPY 的 `OSQP`；
+- `fun_RR_plus.ipynb` 默认使用 CVXPY 的 `OSQP`；
 - `RR.ipynb` 原型使用 `ECOS`；
-- 两个 notebook 的求解器配置并不完全相同，正式批量运行应以 `fun_RR.ipynb` 为准。
+- 各 notebook 的求解器配置并不完全相同，正式批量运行应以 `fun_RR_plus.ipynb` 为准。
 
 ### 并行参数 `n_jobs`
 
-`fun_RR.ipynb` 使用 `joblib.Parallel` 对不同基金的回归任务进行并行计算，当前默认参数为：
+`fun_RR_plus.ipynb` 使用 `joblib.Parallel` 对不同基金的回归任务进行并行计算，当前默认参数为：
 
 ```python
 n_jobs = 14
@@ -393,13 +395,13 @@ n_jobs = 1   # 关闭并行，适合调试和排查错误
 6. [`基金数据/对齐数据日期.ipynb`](./基金数据/对齐数据日期.ipynb)：筛选半年报/年报持仓并生成 `available_date`。
 7. [`navtotradeday.ipynb`](./navtotradeday.ipynb)：将基金日期映射到交易日并生成正式基金日频面板。
 8. [`基金数据/NAVReturn.ipynb`](./基金数据/NAVReturn.ipynb)：在正式面板中按 `PRICE_DATE` 仅重算 `return`。
-9. [`fun_RR.ipynb`](./fun_RR.ipynb)：重新加载数据后运行单窗口或季度滚动评价与回测。
+9. [`fun_RR_plus.ipynb`](./fun_RR_plus.ipynb)：重新加载数据后运行单窗口或季度滚动评价与回测。
 
 部分 notebook 会直接覆盖 Feather 文件。重新运行前应确认执行顺序，并为重要中间数据保留备份。
 
 ## 9. 运行主流程
 
-在 `fun_RR.ipynb` 中先加载一次基础数据和基金经理数据：
+在 `fun_RR_plus.ipynb` 中先加载一次基础数据和基金经理数据：
 
 ```python
 raw_data = load_rr_data()
@@ -533,6 +535,50 @@ $$
 {factor}_matched_weight_sum
 ```
 
+### IC 与 Rank IC
+
+`fun_RR_plus.ipynb` 可以直接基于 `outs` 检验季度末能力值对下一季度基金实际收益的预测能力。
+
+普通 IC 使用能力值与实际收益的 Pearson 相关：
+
+```python
+ic_summary = compute_quarterly_ic_ir(outs)
+```
+
+Rank IC 先分别对能力值和实际收益排名，再计算 Pearson 相关：
+
+```python
+rank_ic_summary = compute_quarterly_rank_ic_ir(outs)
+```
+
+两个函数默认直接返回跨季度汇总，包括平均 IC、季度标准差、ICIR、年化 ICIR、正 IC 比例和 t 统计量。需要保留每季度相关系数、p 值、基金数量和累计 IC 时：
+
+```python
+ic_summary, quarterly_ic = compute_quarterly_ic_ir(
+    outs,
+    keep_intermediate=True,
+)
+
+rank_ic_summary, quarterly_rank_ic = compute_quarterly_rank_ic_ir(
+    outs,
+    keep_intermediate=True,
+)
+```
+
+季度频率的年化 ICIR 定义为：
+
+$$
+AnnualizedICIR = ICIR \times \sqrt{4}
+$$
+
+IC 的 t 统计量定义为：
+
+$$
+t_{IC}
+=
+\frac{\overline{IC}}{s_{IC}/\sqrt{N}}
+$$
+
 ## 11. 报告口径与当前实现的差异
 
 本项目复现了报告的核心评价框架，但并非逐字逐项的静态重建。以下差异在解释结果时尤其重要：
@@ -544,10 +590,10 @@ $$
    报告要求组合构建时基金规模不低于 1 亿元；当前代码保留窗口内曾出现 `1M=True` 的基金，不一定要求窗口结束日规模仍超过 1 亿元。
 
 3. **持仓数据范围不同**  
-   报告的 TOP15 持仓分析使用最新季报重仓股，而模型附录的混合风格暴露使用最新半年报或年报完整持仓。当前代码的风格暴露和择时能力均使用经过筛选的半年报/年报股票持仓。
+   报告的 TOP15 持仓分析使用最新季报重仓股，而模型附录的混合风格暴露使用最新半年报或年报完整持仓。当前代码只在混合风格暴露中使用经过筛选的半年报/年报股票持仓。
 
 4. **择时能力公式属于当前实现**  
-   本期报告解释了择时能力及其组合表现，但附录未完整给出公式。代码采用“总股票持仓变化乘市场累计收益”的实现。
+   `fun_RR_plus.ipynb` 使用传统 TM 二次回归，以无约束的 `gamma` 作为择时能力。TM 回归只包含截距、市场收益和市场收益平方项，不使用行业或风格因子，也不与原选股回归共享估计系数。
 
 5. **回归窗口已参数化**  
    报告假设过去 `T` 期暴露稳定；当前代码将其具体化为默认 120 个交易日的季度滚动窗口。
@@ -561,14 +607,15 @@ $$
 ## 12. 当前已知问题
 
 - `NAVReturn.ipynb` 已改为按 `PRICE_DATE` 计算，但必须实际执行后正式 Feather 才会更新。
-- `fun_RR.ipynb` 仍会对基金缺失收益使用前后收益均值及前后填充，可能复制收益并引入未来信息。
+- `fun_RR_plus.ipynb` 仍会对基金缺失收益使用前后收益均值及前后填充，可能复制收益并引入未来信息。
 - 有效行业因子的局部缺失仍填 0；当前只自动剔除整个窗口完全断档的行业。
 - 持仓报告期仍按全市场统一最新期选择，且股票 Barra 暴露日期可能晚于持仓报告期。
 - `Seperate_Fund.ipynb` 中 `Passive Index Fund` 没有进入完整的优先级和输出分支。
 - `unknown_nav` 只筛选空分类，没有包含显式的 `Other/Unknown`。
 - `Mapping/mapping.ipynb` 使用旧版绝对路径，当前主流程不依赖该映射。
 - `.txt` 后缀的 Barra 文件实际使用 Feather 格式存储。
-- `fun_RR.ipynb` 的注释提到 threading，但实际并行后端为 `loky` 多进程。
+- `fun_RR_plus.ipynb` 的注释提到 threading，但实际并行后端为 `loky` 多进程。
+- 基金经理 ID 聚合结果在不同 pandas 版本中可能表现为 tuple 或 ndarray；当前主流程已统一标准化并在筛选端兼容多种序列类型。
 - 多个 notebook 会覆盖原始或中间数据，尚未形成完全可重复的一键式流水线。
 - 项目目前没有统一的 `requirements.txt`、自动化测试或固定随机/环境版本文件。
 

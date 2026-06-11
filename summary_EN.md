@@ -2,8 +2,8 @@
 
 > [Back to project README](./README.md) | [中文版](./summary.md)
 
-> Scope: All 14 `.ipynb` files in the current project directory, cross-checked against `data_schema.md` and the data files in the repository.  
-> Summary date: 2026-06-08
+> Scope: All 15 `.ipynb` files in the current project directory, cross-checked against `data_schema.md` and the data files in the repository.
+> Summary date: 2026-06-10
 
 ## 1. What This Project Does
 
@@ -22,10 +22,12 @@ The main workflow can be summarized as follows:
 9. Calculate stock-selection, market-timing, and comprehensive capabilities, while enforcing fund-manager uniqueness and fund-company concentration limits.
 10. Run the process quarterly and calculate next-quarter realized returns, decile returns, TOP15 portfolio returns, and cumulative return curves.
 11. Calculate quarterly comprehensive-score long-short returns as the first decile minus the tenth decile, together with the win rate, average quarterly long-short return, and a bar chart.
+12. Calculate quarterly IC, Rank IC, ICIR, annualized ICIR, and significance statistics for stock-selection, market-timing, and comprehensive scores.
 
 In this project:
 
-- `fun_RR.ipynb` is the most complete notebook and the closest to a production research program.
+- `fun_RR_plus.ipynb` is the most complete notebook and the closest to a production research program.
+- `fun_RR.ipynb` is retained as the legacy functionalized workflow for methodology and historical-result comparison.
 - `RR.ipynb` is a step-by-step prototype for a single time window.
 - The notebooks under `基金数据/`, `宽基指数日行情/`, `申万一级行业/`, and `Barra_CNE5/` primarily prepare input data.
 - The various files named `test.ipynb` contain experiments, inspections, or temporary code rather than complete workflows.
@@ -41,7 +43,8 @@ In this project:
 | `Mapping/` | Trading-day-to-holdings-report-date mapping and Barra-to-Shenwan industry-name mapping |
 | `备用数据/` | Large raw CSV files and basic read tests |
 | `RR.ipynb` | Prototype for regression and capability evaluation over one time window |
-| `fun_RR.ipynb` | Main functionalized workflow for multiple windows and quarterly rolling backtests |
+| `fun_RR_plus.ipynb` | Current main workflow with revised timing capability and IC/Rank IC analysis |
+| `fun_RR.ipynb` | Legacy functionalized workflow for multiple windows and quarterly rolling backtests |
 | `navtotradeday.ipynb` | Aligns NAV dates with trading days and produces the daily fund panel used by the regression |
 | `outs.pkl`, `outs1.pkl` | Serialized rolling-backtest results; `fun_RR.ipynb` explicitly writes `outs1.pkl` |
 
@@ -49,8 +52,9 @@ In this project:
 
 | Notebook | Main Work | Main Inputs | Main Outputs |
 |---|---|---|---|
-| `fun_RR.ipynb` | Complete functionalized RR regression, capability scoring, and quarterly rolling backtest | Daily fund panel, holdings, broad-market/industry/Barra factors, fund managers | In-memory `outs` result dictionary, `outs1.pkl`, decile cumulative-return charts, and comprehensive-score quarterly long-short analysis |
-| `RR.ipynb` | Single-window regression prototype and capability calculation | Mostly the same inputs as `fun_RR.ipynb` | Regression exposures, holdings exposures, stock-selection capability, and manager-deduplicated TOP15 |
+| `fun_RR_plus.ipynb` | Current RR regression, capability scoring, quarterly backtesting, and IC analysis | Daily fund panel, holdings, broad-market/industry/Barra factors, fund managers | `outs`, decile and TOP15 returns, long-short returns, and IC/Rank IC summaries and details |
+| `fun_RR.ipynb` | Legacy functionalized RR regression and quarterly rolling backtest | Mostly the same inputs as the plus version | Historical-methodology `outs`, cumulative returns, and long-short analysis |
+| `RR.ipynb` | Single-window regression prototype and capability calculation | Mostly the same inputs as the functionalized workflows | Regression exposures, holdings exposures, stock-selection capability, and manager-deduplicated TOP15 |
 | `navtotradeday.ipynb` | Aligns fund NAV dates to the nearest trading day | Equity-oriented fund NAV and broad-market index returns | `基金数据/交易日偏股型基金.feather` |
 | `基金数据/Seperate_Fund.ipynb` | Fund classification, NAV splitting, holdings classification, and fund-description enrichment | NAV, fund industry classifications, holdings CSV files, and fund description CSV | NAV files by fund type, holdings Feather files, and updated equity-oriented fund data |
 | `基金数据/NAVReturn.ipynb` | Recalculates returns by `PRICE_DATE` in the final trading-day panel | `交易日偏股型基金.feather` | Updates only the `return` column in the same file |
@@ -66,9 +70,9 @@ In this project:
 
 ## 4. Detailed Notebook Descriptions
 
-### 4.1 `fun_RR.ipynb`
+### 4.1 `fun_RR_plus.ipynb`
 
-This is the core notebook of the project. It converts the single-window workflow in `RR.ipynb` into reusable functions and adds market-timing capability, comprehensive scoring, fund-company limits, quarterly rolling execution, and out-of-sample backtesting.
+This is the current core notebook. It extends the functionalized workflow with a revised regression-position timing measure, manager-deduplication compatibility across pandas versions, and quarterly IC/Rank IC analysis.
 
 Main modules:
 
@@ -105,8 +109,12 @@ Main modules:
   - Reconstructs model returns from market, industry, and mixed style exposures.
   - Defines stock-selection capability as the average of actual fund returns minus model returns.
 - `compute_timing_ability()`:
-  - Compares total equity holdings between the two most recent semiannual or annual reports.
-  - Multiplies the holdings change by the cumulative CSI 300 return between the two report dates to obtain market-timing capability.
+  - Runs a traditional Treynor-Mazuy quadratic regression independently from the stock-selection attribution regression.
+  - Includes only an intercept, market return, and squared market return.
+  - Re-estimates `tm_alpha`, `tm_beta`, and `gamma` by ordinary least squares.
+  - Uses no industry or Barra style factors, exposure constraints, or regularization.
+  - Leaves `gamma` unconstrained and uses it as `timing_ability`.
+  - Solves funds in parallel using `joblib.Parallel` and the `loky` backend.
 - Converts stock-selection and market-timing capabilities into percentile scores and calculates an equally weighted comprehensive score.
 - Fund-selection rules require:
   - No repeated fund managers.
@@ -121,7 +129,11 @@ Main modules:
   - Produces decile-average returns and TOP15 average returns.
 - `make_quarterly_rolling_windows()` creates quarter-end rolling windows, with a default lookback of 120 trading days.
 - `run_rr_windows()` runs all windows in batch.
-- The example covers `2009-06-30` through `2026-03-31` and saves the results as `outs1.pkl`.
+- `compute_quarterly_ic_ir()` independently calculates Pearson IC between capability values and next-quarter realized returns. It returns the cross-quarter summary by default and optionally returns quarterly IC details with `keep_intermediate=True`.
+- `compute_quarterly_rank_ic_ir()` independently ranks capability and return values before calculating Pearson correlation. It returns mean Rank IC and Rank ICIR summaries by default and can optionally retain quarterly details.
+- Both summaries include the mean correlation, sample standard deviation, IR, annualized IR, positive-correlation ratio, and t statistic.
+- Manager IDs produced by pandas aggregation are normalized and accepted as tuples, lists, ndarrays, or Series before manager deduplication.
+- The example covers `2009-06-30` through `2026-03-31` and keeps the results in the in-memory `outs` dictionary.
 - `build_decile_cum_return()` links decile returns across periods into cumulative return series and plots cumulative returns for stock-selection, market-timing, and comprehensive capability.
 - `build_comprehensive_long_short_return()`:
   - Extracts average returns for the first and tenth deciles from each window's `comprehensive_decile_result`.
@@ -151,13 +163,13 @@ Referenced data:
 - `Barra_CNE5/ResidualVolatility正交后.txt`
 - `Barra_CNE5/Size正交后.txt`
 
-**Written**
+The plus version does not write a pickle by default. Callers should use a distinct filename for revised-methodology results rather than overwriting legacy `outs.pkl` or `outs1.pkl`.
 
-- `outs1.pkl`
+The legacy [`fun_RR.ipynb`](./fun_RR.ipynb) remains available for comparison with the previous disclosed-holdings timing definition and historical backtests.
 
 ### 4.2 `RR.ipynb`
 
-This is the step-by-step prototype for `fun_RR.ipynb`, using a fixed example window from `2020-06-30` to `2021-06-29`.
+This is the step-by-step prototype for the functionalized workflows, using a fixed example window from `2020-06-30` to `2021-06-29`.
 
 Main work:
 
@@ -172,7 +184,7 @@ Main work:
 - Matches active fund managers as of `end_date`; if no active manager exists, it uses the most recent prior management record.
 - Sorts funds by stock-selection capability and selects a TOP15 after removing repeated fund managers.
 
-The referenced data is largely the same as in `fun_RR.ipynb`, but this notebook does not write a result file.
+The referenced data is largely the same as in the functionalized workflows, but this notebook does not write a result file.
 
 ### 4.3 `navtotradeday.ipynb`
 
@@ -435,8 +447,12 @@ Regression exposures + holdings exposures + fund managers + fund companies
 - Holdings-based style exposure: For each factor, `sum(weight * exposure) / sum(valid matched weight)`, using only stocks with a non-missing exposure for that factor.
 - Holdings factor coverage: Valid matched stock weight divided by total disclosed stock-holding weight; the holdings exposure is missing when coverage is below 85% by default.
 - Stock-selection capability: Average residual after subtracting market, industry, and mixed-style model returns from actual fund returns; regression alpha is not included.
-- Market-timing capability: Change in total equity holdings between the two most recent reports multiplied by the cumulative CSI 300 return over the period.
+- Market-timing capability: The unconstrained `gamma` coefficient from an independent traditional TM quadratic regression.
 - Comprehensive capability: Equal-weighted average of the percentile scores for stock-selection and market-timing capability.
+- IC: Quarterly Pearson correlation between capability values and next-quarter realized fund returns.
+- Rank IC: Pearson correlation after separately ranking capability values and next-quarter returns.
+- ICIR: Mean quarterly IC divided by its sample standard deviation; annualized quarterly ICIR equals `ICIR × sqrt(4)`.
+- IC t statistic: `mean_ic / (std_ic / sqrt(valid_quarter_count))`.
 - Comprehensive-score quarterly long-short return: The current code assigns the highest score to the first decile and the lowest score to the tenth decile, so the return is `first-decile average return - tenth-decile average return`.
 - Long-short win rate: Among quarters with valid returns for both deciles, the share whose long-short return is strictly greater than zero; incomplete quarters are excluded from the denominator.
 - Average long-short return: Arithmetic mean of `first-decile average return - tenth-decile average return` across valid quarters only.
@@ -543,7 +559,7 @@ os.replace(temp_path, data_path)
 - Every column other than `return`.
 - Original row count, row order, and column order.
 - Original `F_NAV_ADJUSTED` values.
-- The way `fun_RR.ipynb` reads the formal trading-day panel.
+- The way `fun_RR_plus.ipynb` reads the formal trading-day panel.
 
 **Validation result**
 
@@ -768,7 +784,7 @@ Because `NAVReturn.ipynb` now updates the final trading-day panel:
 
 1. Run `navtotradeday.ipynb` to generate `基金数据/交易日偏股型基金.feather`.
 2. Run `基金数据/NAVReturn.ipynb` to recalculate only `return` by `PRICE_DATE`.
-3. Restart or rerun `load_rr_data()` in `fun_RR.ipynb` so no stale in-memory returns remain.
+3. Restart or rerun `load_rr_data()` in `fun_RR_plus.ipynb` so no stale in-memory returns remain.
 4. Run a single-window diagnostic.
 5. Rerun the complete quarterly rolling backtest and build new `outs`.
 6. Call `build_comprehensive_long_short_return(outs)` to generate quarterly comprehensive-score long-short details, win rate, average return, and chart.
@@ -776,10 +792,10 @@ Because `NAVReturn.ipynb` now updates the final trading-day panel:
 
 ## 8. Issues Worth Noting
 
-1. `fun_RR.ipynb` is the most complete current version. Some algorithms and thresholds in `RR.ipynb` have already been updated in the functionalized version, so future maintenance should prioritize `fun_RR.ipynb`.
+1. `fun_RR_plus.ipynb` is the most complete current version. `fun_RR.ipynb` and `RR.ipynb` are retained as the legacy workflow and prototype, so future maintenance should prioritize the plus version.
 2. The Markdown in `navtotradeday.ipynb` still refers to `ANN_DATE`, while the code actually processes `PRICE_DATE`. Some comments also retain an old `5d` name even though the current parameter is seven days.
 3. `NAVReturn.ipynb` now uses `PRICE_DATE`, but the formal Feather file changes only after the notebook is actually executed.
-4. `fun_RR.ipynb` still fills missing fund returns using surrounding-return averages followed by forward and backward filling. This can duplicate returns and introduce future information.
+4. `fun_RR_plus.ipynb` still fills missing fund returns using surrounding-return averages followed by forward and backward filling. This can duplicate returns and introduce future information.
 5. Partial missing values in otherwise active industry factors are still filled with zero; only factors that are entirely missing within a window are removed automatically.
 6. Holdings reports are still selected using one market-wide latest report period rather than a per-fund fallback to each fund's latest available report.
 7. Holdings weights come from the report date, while stock-level Barra exposures are still taken from the latest date before evaluation, creating potential timing mismatch.
@@ -788,7 +804,7 @@ Because `NAVReturn.ipynb` now updates the final trading-day panel:
 10. Multiple notebooks overwrite Feather files, so execution order affects final results.
 11. `Mapping/mapping.ipynb` uses legacy absolute paths and is not required by the current main workflow.
 12. Barra files with a `.txt` suffix are actually stored in Feather format.
-13. A comment in `fun_RR.ipynb` mentions threading, while fund regression uses the `loky` multiprocessing backend.
+13. A comment in `fun_RR_plus.ipynb` mentions threading, while fund regression uses the `loky` multiprocessing backend.
 14. The project still lacks automated tests and a fully reproducible one-command pipeline.
 
 ## 9. Recommended Execution Order
@@ -801,4 +817,4 @@ Because `NAVReturn.ipynb` now updates the final trading-day panel:
 6. `基金数据/对齐数据日期.ipynb`: Process holdings availability dates.
 7. `navtotradeday.ipynb`: Generate the trading-day-aligned equity-oriented fund panel.
 8. `基金数据/NAVReturn.ipynb`: Recalculate only `return` by `PRICE_DATE` in the final panel.
-9. `fun_RR.ipynb`: Reload the data, run rolling regression and capability backtesting, and generate the comprehensive-score quarterly long-short return, win rate, average return, and visualization at the end.
+9. `fun_RR_plus.ipynb`: Reload the data, run rolling regression and capability backtesting, and generate long-short, IC, Rank IC, and ICIR results.
