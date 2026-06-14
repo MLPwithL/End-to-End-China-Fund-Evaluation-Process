@@ -1,8 +1,10 @@
 # 正则化基金评价复现
 
+English version:[`README_EN`](./README_EN.md)
+
 本项目用于复现东吴证券金融工程报告《正则化基金评价 2021Q3 组合》（2021 年 7 月 3 日）中的基金评价框架，并在此基础上实现数据清洗、正则化回归、持仓暴露融合、基金能力评分、季度滚动选基和样本外回测。
 
-项目的核心研究对象是主动股票型及偏股混合型公募基金。主要入口为 [`fun_RR.ipynb`](./fun_RR.ipynb)，各数据准备 notebook、字段说明和完整文件盘点见 [`summary.md`](./summary.md)。
+项目的核心研究对象是主动股票型及偏股混合型公募基金。主要入口为 [`fun_RR_plus.ipynb`](./fun_RR_plus.ipynb)，各数据准备 notebook、字段说明和完整文件盘点见 [`summary.md`](./summary.md)。
 
 > 本项目是研究复现，不构成投资建议。报告与代码均基于历史数据，实际使用仍需考虑数据质量、交易成本、申赎限制、组合容量和风险控制。
 
@@ -32,7 +34,7 @@
 | 单窗口模型原型 | [`RR.ipynb`](./RR.ipynb) |
 | NAV 交易日对齐 | [`navtotradeday.ipynb`](./navtotradeday.ipynb) |
 | 全部 notebook 中文总结 | [`summary.md`](./summary.md) |
-| 全部 notebook 英文总结 | [`summary_EN.md`](./summary_EN.md) |
+| notebook English summary | [`summary_EN.md`](./summary_EN.md) |
 | 数据结构盘点 | [`data_schema.md`](./data_schema.md) |
 
 ## 1. 研究报告
