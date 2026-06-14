@@ -1,4 +1,4 @@
-# 正则化基金评价复现
+# 正则化基金评价复现 (Regularized Fund Evaluation Replication)
 
 English version:[`README_EN`](./README_EN.md)
 
