@@ -1,58 +1,30 @@
 # Regularized Fund Evaluation Replication
 
-This project replicates the fund evaluation framework from the Soochow Securities financial engineering report *Regularized Fund Evaluation 2021Q3 Portfolio* dated July 3, 2021. Based on this framework, the project implements data cleaning, regularized regression, holding-based exposure blending, fund ability scoring, quarterly rolling fund selection, and out-of-sample backtesting.
+> [Chinese README](./README.md) | [Chinese notebook summary](./summary.md) | [English notebook summary](./summary_EN.md)
 
-The core research objects are active equity funds and equity-oriented hybrid mutual funds. The main entry point is [`fun_RR.ipynb`](./fun_RR.ipynb). Data preparation notebooks, field descriptions, and the complete file inventory are summarized in [`summary.md`](./summary.md).
+This project replicates the fund-evaluation framework in the Soochow Securities financial-engineering report *Regularized Fund Evaluation 2021Q3 Portfolio* dated July 3, 2021. It extends the original framework with data cleaning, constrained regularized regression, holdings-based exposure blending, fund capability scoring, quarterly selection, and out-of-sample backtesting.
 
-> This project is for research replication only and does not constitute investment advice. The report and code are based on historical data. Practical use should still consider data quality, transaction costs, subscription/redemption constraints, portfolio capacity, and risk control.
+The main research universe consists of actively managed equity funds and equity-oriented hybrid funds. The current primary workflow is [`fun_RR_plus.ipynb`](./fun_RR_plus.ipynb). The legacy [`fun_RR.ipynb`](./fun_RR.ipynb) is retained for methodology comparison.
 
-## Navigation
-
-- [Research Report](#1-research-report)
-- [Method Overview](#2-method-overview)
-- [Fund Universe and Portfolio Rules](#3-fund-universe-and-portfolio-rules)
-- [Backtest Design](#4-backtest-design)
-- [Post-2023 Performance Diagnosis and Fixes](#post-2023-performance-diagnosis-and-fixes)
-- [Data System](#5-data-system)
-- [Project Structure](#6-project-structure)
-- [Environment Dependencies](#7-environment-dependencies)
-- [Data Preparation Order](#8-data-preparation-order)
-- [Main Workflow](#9-main-workflow)
-- [Main Outputs](#10-main-outputs)
-- [Differences Between the Report Methodology and Current Implementation](#11-differences-between-the-report-methodology-and-current-implementation)
-- [Known Issues](#12-known-issues)
-- [Replication Objectives](#13-replication-objectives)
-- [References](#14-references)
+> This repository is for research replication only and is not investment advice. Historical backtests do not account fully for transaction costs, subscriptions/redemptions, capacity, liquidity, or operational constraints.
 
 ## Quick Links
 
-| Content | File |
+| Item | File |
 |---|---|
-| Main backtest program | [`fun_RR.ipynb`](./fun_RR.ipynb) |
-| Single-window model prototype | [`RR.ipynb`](./RR.ipynb) |
+| Current main workflow | [`fun_RR_plus.ipynb`](./fun_RR_plus.ipynb) |
+| Legacy workflow | [`fun_RR.ipynb`](./fun_RR.ipynb) |
+| Single-window prototype | [`RR.ipynb`](./RR.ipynb) |
 | NAV trading-day alignment | [`navtotradeday.ipynb`](./navtotradeday.ipynb) |
-| Full Chinese notebook summary | [`summary.md`](./summary.md) |
-| Full English notebook summary | [`summary_EN.md`](./summary_EN.md) |
-| Data structure inventory | [`data_schema.md`](./data_schema.md) |
+| Chinese notebook summary | [`summary.md`](./summary.md) |
+| English notebook summary | [`summary_EN.md`](./summary_EN.md) |
+| Data schema | [`data_schema.md`](./data_schema.md) |
 
-## 1. Research Report
+## 1. Method Overview
 
-Replication basis:
+### 1.1 Return Attribution
 
-- Report: `正则化基金评价季报20210703.pdf`
-- Institution: Soochow Securities Research Institute
-- Report date: 2021-07-03
-- Topic: Regularized Fund Evaluation 2021Q3 Portfolio
-
-The basic idea of the report is that because mutual funds disclose complete holdings at a low frequency, daily fund returns can be regressed on market, industry, and style factors with constraints. This allows the estimation of fund equity position, industry exposure, style exposure, and stock selection ability. To reduce overfitting in return-based regression, the report adds an L2 regularization term to style exposure and blends the regularized regression exposure equally with the actual style exposure calculated from the latest disclosed holdings.
-
-The report also constructs quarterly fund portfolios based on stock selection ability, timing ability, and comprehensive score, and then tests the effectiveness of the evaluation indicators using next-quarter holding returns.
-
-## 2. Method Overview
-
-### 2.1 Return Attribution Model
-
-Assuming that fund position, industry exposure, and style exposure remain stable within the lookback window, daily fund return can be expressed as:
+Fund daily returns are modeled as:
 
 $$
 r_t =
@@ -65,18 +37,16 @@ $$
 
 where:
 
-- `r_t`: daily fund return;
-- `r_m,t`: market return, currently represented by CSI 300;
-- `r_i,t^ind`: daily return of Shenwan Level-1 industries;
-- `r_j,t^style`: daily return of Barra style factors;
-- `beta_m`: fund equity position;
-- `beta_i^ind`: industry exposure;
-- `beta_j^style`: style exposure;
-- `alpha + epsilon_t`: stock selection return not explained by market, industry, or style factors.
+- `r_t` is the fund return.
+- `r_m,t` is the market return, currently represented by CSI 300.
+- `r_i,t^ind` is a Shenwan Level-1 industry return.
+- `r_j,t^style` is a Barra style-factor return.
+- `beta_m` is the estimated equity allocation.
+- `beta_i^ind` and `beta_j^style` are industry and style exposures.
 
-### 2.2 Constraints and Regularization
+### 1.2 Constraints and Regularization
 
-The current main workflow solves the following constrained quadratic programming problem:
+The regression minimizes squared residuals plus an L2 penalty on style exposures:
 
 $$
 \min
@@ -105,50 +75,33 @@ $$
 \sum_i \beta_i^{ind} = \beta_m
 $$
 
-The report fixes the regularization coefficient as:
+The default regularization coefficient is `6e-5`.
 
-$$
-\lambda = 6 \times 10^{-5}
-$$
+### 1.3 Mixed Style Exposure
 
-The code follows this default value. The regularization term only penalizes style exposure. It does not directly penalize equity position, industry exposure, or alpha.
-
-### 2.3 Blended Style Exposure Estimation
-
-The report states that relying only on return-based regression to estimate style exposure can easily lead to overfitting. Although the latest semiannual or annual report holdings are lagged, the exposure estimates from holdings are more stable. Therefore, the final style exposure uses an equally weighted blend:
+When holdings coverage is sufficient, the final style exposure is:
 
 $$
 \beta_j^{mix}
 =
-\frac{1}{2}\beta_j^{reg}
-+
-\frac{1}{2}\beta_j^{holding}
+0.5\beta_j^{reg}
++ 0.5\beta_j^{holding}
 $$
 
-In this project:
-
-- `beta_j^reg` comes from regularized fund return regression with an L2 penalty;
-- `beta_j^holding` is calculated using valid matched stocks for each factor:
+Holdings exposure is calculated separately for each factor using only stocks with valid factor exposure:
 
 $$
 \beta_j^{holding}
 =
-\frac{
-\sum_{k \in valid_j} w_k x_{k,j}
-}{
-\sum_{k \in valid_j} w_k
-}
+\frac{\sum_{k \in valid_j} w_k x_{k,j}}
+{\sum_{k \in valid_j} w_k}
 $$
 
-- factor coverage is defined as the valid matched stock weight for a given factor divided by the total stock holding weight of the fund;
-- the default coverage threshold is 85%;
-- if coverage is below the threshold, the holding-based exposure for that factor is treated as missing;
-- if holding exposure is valid, the final exposure uses 50% regression exposure and 50% holding exposure;
-- if holding exposure is missing, the final exposure uses 100% regression exposure instead of treating the missing exposure as 0.
+The default minimum factor coverage is 85%. If coverage is insufficient, the model uses 100% regression exposure instead of treating missing holdings exposure as zero.
 
-### 2.4 Stock Selection Ability
+### 1.4 Stock-Selection Capability
 
-The model return is reconstructed using market exposure, industry exposure, and blended style exposure:
+Model returns are reconstructed from market, industry, and mixed style exposures:
 
 $$
 \widehat r_t^{model}
@@ -158,159 +111,309 @@ $$
 + \sum_j \beta_j^{mix}r_{j,t}^{style}
 $$
 
-Stock selection return is defined as:
+Stock-selection capability is the average unexplained return:
 
 $$
-u_t = r_t - \widehat r_t^{model}
-$$
-
-The current code uses the average value of `u_t` within the window as the fund’s stock selection ability:
-
-$$
-StockSelectionAbility = mean(u_t)
-$$
-
-The regression-estimated `alpha` is not added back into the model return. This is consistent with the idea of treating the unexplained part as stock selection return.
-
-### 2.5 Timing Ability
-
-The report explains timing ability as whether the fund manager can increase equity position when the market rises and reduce equity position when the market falls.
-
-The current code uses the change in total stock holdings between the two most recent available semiannual or annual reports, multiplied by the cumulative CSI 300 return between the two report periods:
-
-$$
-TimingAbility
+StockSelectionAbility
 =
-\left(
-Holding_{latest} - Holding_{previous}
-\right)
-\times MarketReturn
+mean(r_t-\widehat r_t^{model})
 $$
 
-This is the specific implementation used in this project. The report presents the portfolio results and economic interpretation of timing ability, but the appendix of this report does not fully provide its calculation formula.
+### 1.5 Market-Timing and Comprehensive Capability
 
-### 2.6 Comprehensive Ability
-
-The code first converts stock selection ability and timing ability into percentile scores from 0 to 100, and then calculates the comprehensive score as an equal-weighted average:
+The current timing measure is the unconstrained `gamma` from an independent Treynor-Mazuy regression:
 
 $$
-ComprehensiveScore
+r_t
 =
-\frac{
-StockSelectionScore + TimingScore
-}{2}
+\alpha_{TM}
++ \beta_{m,TM}r_{m,t}
++ \gamma r_{m,t}^{2}
++ \varepsilon_t
 $$
 
-The report describes this as “timing score + stock selection score.” Using the average does not change the ranking of funds; it only changes the score scale.
+Stock-selection and timing capabilities are converted to percentile scores. Their equal-weighted average forms the comprehensive score.
 
-## 3. Fund Universe and Portfolio Rules
+## 2. Fund Selection Rules
 
-The sample fund portfolio rules in the report are:
+The current workflow applies the following rules:
 
-- active equity-oriented funds;
-- fund size no less than RMB 100 million;
-- ranking from high to low by stock selection ability, timing ability, or comprehensive ability;
-- each fund manager can only be selected once;
-- each fund company can have at most two selected funds;
-- TOP15 sample portfolios are shown for each evaluation dimension;
-- the complete FOF portfolio uses the top 10% funds by ability ranking.
+- At least 120 observed fund dates in the regression window.
+- At least one record with net assets above CNY 100 million.
+- Separate rankings for stock-selection, timing, and comprehensive capability.
+- No repeated fund manager in a selected TOP15 portfolio.
+- No more than two selected funds from the same fund company.
+- Separate TOP15 portfolios for the three capability dimensions.
 
-The current `fun_RR.ipynb` has implemented:
+The enhanced performance analysis described below applies only to the stock-selection ranking.
 
-- at least 120 fund observation days within the window;
-- the fund has at least one record with asset size greater than RMB 100 million;
-- separate rankings for stock selection, timing, and comprehensive ability;
-- fund manager deduplication;
-- at most two funds from the same fund company;
-- three types of TOP15 portfolios;
-- fund ability decile grouping and next-quarter return backtesting.
+## 3. Quarterly Backtest
 
-## 4. Backtest Design
+For each quarter:
 
-The report forms fund evaluation results at each quarter end, holds the selected funds for the next quarter, and sells at the end of that quarter.
+1. Use the latest trading day on or before the natural quarter end as the formation date.
+2. Use a default 120-trading-day regression lookback.
+3. Form capability rankings at the formation date.
+4. Use the last available trading day on or before the end of the following natural quarter as the sell date.
+5. Calculate realized returns from adjusted fund NAV.
+6. Calculate decile returns and the manager-deduplicated TOP15 return.
+7. Link returns using the actual sell date to build cumulative NAV curves.
 
-The current main workflow:
+The code sorts capabilities in descending order:
 
-1. Uses the natural quarter end date or the nearest previous trading day as the window end date.
-2. Takes the previous 120 trading days as the default regression window.
-3. Forms stock selection, timing, and comprehensive ability rankings at the window end date.
-4. Uses the last trading day on or before the next natural quarter end as the sell date.
-5. Calculates each fund’s actual holding return using adjusted NAV.
-6. Calculates decile returns and TOP15 portfolio average returns.
-7. Connects quarterly decile returns into cumulative return curves.
-8. For comprehensive score, calculates the quarterly long-short return as Group 1 minus Group 10 and summarizes win rate and average quarterly long-short return.
+- `decile == 1` is the highest-ranked group.
+- `decile == 10` is the lowest-ranked group.
 
-The report defines Group 10 as the highest-score group and Group 1 as the lowest-score group. The current code sorts in descending order and defines `decile == 1` as the highest-score group and `decile == 10` as the lowest-score group. Therefore, the group labels need to be reversed when comparing with the report charts, but the fund ranking and portfolio returns themselves are not affected.
+## 4. Stock-Selection Performance Analysis
 
-## Post-2023 Performance Diagnosis and Fixes
+### 4.1 TOP15 Backtest
 
-Older versions of `outs.pkl` / `outs1.pkl` showed a clear reversal of stock selection ability after 2023:
+The stock-selection TOP15 analysis includes:
 
-- before 2023, the average cross-sectional Spearman correlation between stock selection ability and next-quarter return was about `+0.034`;
-- after 2023, it was about `-0.138`;
-- after 2023, the high-score Group 1 had an average next-quarter return of about `1.4%`, while the low-score Group 10 had about `5.9%`;
-- timing ability did not show a reversal of the same magnitude.
+- Quarterly TOP15 return.
+- Cumulative TOP15 NAV.
+- Annualized return.
+- Annualized volatility.
+- Maximum drawdown.
+- Information ratio versus `885001.WI`.
 
-Three fixes were made to fund returns, industry factors, and holding-based Barra exposure:
+### 4.2 Decile Backtest
 
-1. **Fund returns are recalculated by `PRICE_DATE`**  
-   [`基金数据/NAVReturn.ipynb`](./基金数据/NAVReturn.ipynb) now reads the final trading-day panel and only overwrites `return`, while preserving other columns, row order, and column order. It uses `pct_change(fill_method=None)` and no longer fills the first or abnormal return values uniformly with 0.
+The stock-selection decile analysis includes:
 
-2. **Completely broken industry factors are dynamically removed from regression**  
-   `run_regularized_regression()` removes industries that have no valid observations within each window. For example, `采掘` automatically exits windows after 2022, while `煤炭` continues to participate.
+- Quarterly returns for deciles 1 through 10.
+- Cumulative NAV for every decile.
+- First-decile-minus-tenth-decile long-short return.
+- Cumulative long-short NAV.
+- Unified performance metrics for every decile and the long-short portfolio.
 
-3. **Holding-based Barra exposure is normalized by factor-level coverage**  
-   Each style factor independently calculates matched weight and coverage. Exposure is divided by the valid matched weight of that factor. If coverage is below 85%, holding-based exposure is treated as missing, and the blending stage automatically falls back to regression exposure.
+Individual deciles use `885001.WI` as the information-ratio benchmark. The long-short portfolio uses a zero-return benchmark.
 
-Current validation status:
+### 4.3 TOP15 Excess-Return Backtest
 
-- all three notebook modifications have passed syntax checks and targeted numerical tests;
-- real industry data checks confirm that `采掘` is automatically removed after 2022;
-- holding exposure tests confirm that exposure no longer mechanically shrinks toward 0 due to matching coverage;
-- `NAVReturn.ipynb` still needs to be executed so that the official Feather file is refreshed;
-- the full rolling backtest from 2009 to 2026 has not yet been rerun under the new methodology, so the performance numbers above are the pre-fix baseline, not post-fix results.
+The benchmark file is:
 
-For the full explanation of modification reasons, original code, new code, and validation process, see [`summary.md`](./summary.md#7-2023-年后表现排查与三项修复).
+```text
+基金数据/885001.WI.xlsx
+```
 
-## 5. Data System
+It contains the Wind Equity-Oriented Hybrid Fund Index. Benchmark returns are calculated using the latest available closing value on or before each actual buy and sell date.
 
-The project mainly uses local files exported from Wind.
+Arithmetic quarterly excess return is:
 
-| Data Category | Main File | Purpose |
+$$
+ExcessReturn_t
+=
+r_{TOP15,t}-r_{Benchmark,t}
+$$
+
+Cumulative relative NAV is:
+
+$$
+RelativeNAV_T
+=
+\frac{\prod_{t=1}^{T}(1+r_{TOP15,t})}
+{\prod_{t=1}^{T}(1+r_{Benchmark,t})}
+$$
+
+The analysis reports excess-return win rate, average quarterly excess return, annualized relative return, annualized volatility, maximum drawdown, and information ratio.
+
+### 4.4 Quarterly and Monthly Long-Short Win Rates
+
+Quarterly stock-selection long-short return is:
+
+$$
+LongShortReturn_q
+=
+MeanReturn_{q,decile\,1}
+- MeanReturn_{q,decile\,10}
+$$
+
+For monthly analysis, decile membership is fixed at the quarter's formation date. Returns are then calculated over each full calendar month in the holding quarter. No intra-quarter reranking is performed.
+
+## 5. Performance Metric Definitions
+
+All unified performance metrics use quarterly returns and `periods_per_year = 4`.
+
+### Annualized Return
+
+$$
+AnnualizedReturn
+=
+EndingNAV^{4/N}-1
+$$
+
+### Annualized Volatility
+
+$$
+AnnualizedVolatility
+=
+Std(r_q)\sqrt{4}
+$$
+
+### Maximum Drawdown
+
+Maximum drawdown is the minimum cumulative-NAV decline from its historical peak. The initial NAV of `1.0` is included in the running peak.
+
+### Information Ratio
+
+$$
+InformationRatio
+=
+\frac{Mean(ActiveReturn_q)}
+{Std(ActiveReturn_q)}
+\sqrt{4}
+$$
+
+TOP15 and individual deciles use `885001.WI` as the benchmark. The first-minus-tenth long-short portfolio uses zero return as the benchmark.
+
+## 6. Verified Results
+
+The following results were verified using 66 quarterly holding periods in the current `outs.pkl`:
+
+| Stock-Selection Strategy | Annualized Return | Annualized Volatility | Maximum Drawdown | Information Ratio |
+|---|---:|---:|---:|---:|
+| TOP15 | 11.90% | 20.80% | -35.76% | 0.52 |
+| TOP15 relative NAV versus 885001.WI | 4.12% | 8.31% | -12.97% | 0.52 |
+| First decile minus tenth decile | 3.95% | 7.61% | -16.22% | 0.55 |
+
+The monthly long-short backtest contains:
+
+- 198 valid months.
+- 122 positive months.
+- 61.62% monthly win rate.
+- 0.368% average monthly long-short return.
+
+These figures describe the current local data and implementation. They are not expected to match the report's static historical portfolio exactly.
+
+## 7. Running the Main Workflow
+
+Restart the notebook kernel before a full rerun, then execute all cells in [`fun_RR_plus.ipynb`](./fun_RR_plus.ipynb).
+
+Load shared data once:
+
+```python
+raw_data = load_rr_data()
+manager_data = load_manager_data()
+```
+
+Create quarterly windows:
+
+```python
+windows = make_quarterly_rolling_windows(
+    global_start_date="2009-06-30",
+    global_end_date="2026-03-31",
+    raw_data=raw_data,
+    lookback_trading_days=120,
+)
+```
+
+Run the rolling backtest:
+
+```python
+outs = run_rr_windows(
+    windows,
+    raw_data=raw_data,
+    manager_data=manager_data,
+    keep_intermediate=False,
+    verbose=False,
+)
+```
+
+The notebook then builds the decile, TOP15, benchmark-relative, quarterly long-short, monthly long-short, and performance-summary outputs.
+
+## 8. Result Variables
+
+### Performance Summaries
+
+```python
+# TOP15 metrics
+stock_top15_performance_summary
+
+# Deciles 1-10 and first-minus-tenth metrics
+stock_decile_performance_summary
+
+# TOP15 excess-return metrics and win rate
+stock_top15_excess_summary
+
+# Quarterly and monthly long-short statistics
+stock_selection_long_short_summary
+stock_selection_monthly_long_short_summary
+```
+
+### Period Details
+
+```python
+stock_top15_cum
+stock_decile_cum
+stock_top15_excess
+stock_selection_long_short
+stock_selection_monthly_long_short
+```
+
+### Cumulative Curves
+
+```python
+stock_top15_cum_pivot
+stock_decile_cum_pivot
+stock_top15_excess_cum_pivot
+```
+
+### Chart Objects
+
+```python
+stock_top15_ax
+stock_selection_long_short_ax
+stock_selection_monthly_long_short_ax
+```
+
+The same calls are listed in the notebook appendix under the result-access section.
+
+## 9. Main Data Files
+
+| Data | File | Use |
 |---|---|---|
-| Daily fund NAV | `基金数据/交易日偏股型基金.feather` | Fund returns, fund size, out-of-sample returns |
-| Fund stock holdings | `基金数据/CHINAMUTUALFUNDSTOCKPORTFOLIO.feather` | Holding position, holding-based style exposure, timing ability |
-| Fund manager | `基金数据/CHINAMUTUALFUNDMANAGER_202605221351(1).csv` | Fund manager matching and deduplication |
-| Fund description | `基金数据/CHINAMUTUALFUNDDESCRIPTION_202606031717.csv` | Fund type, fund company, and basic fund information |
-| Broad index returns | `宽基指数日行情/宽基指数收益率.csv` | Market factor, trading calendar, and cumulative market return |
-| Shenwan industry returns | `申万一级行业/申万一级行业_with_dailyreturn.feather` | Industry factors |
-| Barra style returns | `Barra_CNE5/Barra风格因子收益率.feather` | Regression style factors |
-| Stock-level Barra exposure | `Barra_CNE5/*正交后.txt` | Real style exposure calculated from fund holdings |
+| Daily fund panel | `基金数据/交易日偏股型基金.feather` | Regression, fund size, realized return |
+| Equity holdings | `基金数据/CHINAMUTUALFUNDSTOCKPORTFOLIO.feather` | Holdings-based style exposure |
+| Fund managers | `基金数据/CHINAMUTUALFUNDMANAGER_202605221351(1).csv` | Manager matching and deduplication |
+| Fund descriptions | `基金数据/CHINAMUTUALFUNDDESCRIPTION_202606031717.csv` | Fund type and company |
+| Broad-market returns | `宽基指数日行情/宽基指数收益率.csv` | Market factor and trading calendar |
+| Shenwan industries | `申万一级行业/申万一级行业_with_dailyreturn.feather` | Industry factors |
+| Barra style returns | `Barra_CNE5/Barra风格因子收益率.feather` | Style factors |
+| TOP15 benchmark | `基金数据/885001.WI.xlsx` | Excess returns and information ratio |
 
-The complete data file and notebook reference relationships are summarized in [`summary.md`](./summary.md).
-
-## 6. Project Structure
+## 10. Repository Structure
 
 ```text
 .
-├── fun_RR.ipynb
-├── RR.ipynb
-├── navtotradeday.ipynb
+├── README.md
+├── READ_EN.md
 ├── summary.md
 ├── summary_EN.md
 ├── data_schema.md
+├── fun_RR_plus.ipynb
+├── fun_RR.ipynb
+├── RR.ipynb
+├── navtotradeday.ipynb
 ├── 基金数据/
-│   ├── Seperate_Fund.ipynb
-│   ├── NAVReturn.ipynb
-│   ├── 对齐数据日期.ipynb
-│   └── FundNAV数据缺失查找汇报.ipynb
 ├── 宽基指数日行情/
-│   └── Return_Summary.ipynb
 ├── 申万一级行业/
-│   └── Return_Summary.ipynb
 ├── Barra_CNE5/
-│   ├── SeperateBarraFactor.ipynb
-│   └── *正交后.txt
 ├── Mapping/
-│   └── mapping.ipynb
 └── 备用数据/
+```
+
+## 11. Known Limitations
+
+- Missing fund returns in the regression panel may still be filled using surrounding-return averages followed by forward and backward filling, which can duplicate returns and introduce future information.
+- Transaction costs, subscriptions/redemptions, capacity, and implementation frictions are not fully modeled.
+- Fund-manager and fund-company metadata can be incomplete and may remove otherwise eligible funds.
+- Holdings data are disclosed with a lag.
+- Data in the repository extend beyond the report's original 2021 sample, so fund counts and TOP15 selections will differ.
+- `outs.pkl` is a serialized local result object and should be regenerated whenever upstream data or methodology changes.
+
+## 12. References
+
+- Soochow Securities Research Institute, *Regularized Fund Evaluation 2021Q3 Portfolio*, July 3, 2021.
+- Wind fund NAV, holdings, manager, description, index, and factor data exported to local files.
+

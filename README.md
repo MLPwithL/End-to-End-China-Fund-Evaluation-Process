@@ -1,5 +1,7 @@
 # 正则化基金评价复现
 
+> [English README](./READ_EN.md) | [中文总结](./summary.md) | [English summary](./summary_EN.md)
+
 本项目用于复现东吴证券金融工程报告《正则化基金评价 2021Q3 组合》（2021 年 7 月 3 日）中的基金评价框架，并在此基础上实现数据清洗、正则化回归、持仓暴露融合、基金能力评分、季度滚动选基和样本外回测。
 
 项目的核心研究对象是主动股票型及偏股混合型公募基金。当前主要入口为 [`fun_RR_plus.ipynb`](./fun_RR_plus.ipynb)，旧版 [`fun_RR.ipynb`](./fun_RR.ipynb) 保留用于口径对照；各数据准备 notebook、字段说明和完整文件盘点见 [`summary.md`](./summary.md)。
@@ -32,6 +34,7 @@
 | 旧版主流程 | [`fun_RR.ipynb`](./fun_RR.ipynb) |
 | 单窗口模型原型 | [`RR.ipynb`](./RR.ipynb) |
 | NAV 交易日对齐 | [`navtotradeday.ipynb`](./navtotradeday.ipynb) |
+| English README | [`READ_EN.md`](./READ_EN.md) |
 | 全部 notebook 中文总结 | [`summary.md`](./summary.md) |
 | 全部 notebook 英文总结 | [`summary_EN.md`](./summary_EN.md) |
 | 数据结构盘点 | [`data_schema.md`](./data_schema.md) |
@@ -223,7 +226,10 @@ $$
 - 基金经理去重；
 - 单家基金公司最多两只；
 - 三类 TOP15 组合；
-- 基金能力十分组及下一季度收益回测。
+- 基金能力十分组及下一季度收益回测；
+- 针对选股能力排名的 TOP15、十分组和 TOP15 相对 `885001.WI` 超额收益回测；
+- 选股能力十分组第一组减第十组的季度、多月度收益和胜率；
+- 年化收益、年化波动率、最大回撤和信息比率的统一绩效统计。
 
 ## 4. 回测设计
 
@@ -237,8 +243,10 @@ $$
 4. 使用下一自然季度末当日或之前的最后一个交易日作为卖出日。
 5. 根据复权净值计算各基金实际持有收益。
 6. 分别计算十分组收益和 TOP15 组合平均收益。
-7. 将各季度十分组收益连接为累计收益曲线。
-8. 对综合评分计算每季度第一组减第十组的多空收益，并汇总胜率与平均季度多空收益。
+7. 使用实际卖出日连接各季度收益，生成累计净值曲线。
+8. 针对选股能力十分组计算 `第一组 - 第十组` 的季度多空收益、季度胜率和月度胜率；月度计算固定季度初分组名单。
+9. 从 `基金数据/885001.WI.xlsx` 读取万得偏股混合型基金指数，计算 TOP15 的季度超额收益和累计超额净值。
+10. 对选股能力 TOP15、十分组各组、十分组多空和 TOP15 超额回测统一计算年化收益、年化波动率、最大回撤和信息比率。
 
 报告规定第十组为最高分组、第一组为最低分组。当前代码按降序排列后将 `decile == 1` 定义为最高分组、`decile == 10` 定义为最低分组。因此比较报告图表时需要反转分组编号，但基金排序与组合收益本身不受影响。
 
@@ -268,7 +276,7 @@ $$
 - 真实行业数据检查确认 2022 年后自动剔除 `采掘`；
 - 持仓暴露测试确认不会再随匹配覆盖率机械向 0 收缩；
 - `NAVReturn.ipynb` 尚需实际执行，正式 Feather 才会刷新；
-- 完整 2009 至 2026 年滚动回测尚未按新口径重跑，因此上述表现数字是修复前基线，不是修复后业绩。
+- 当前 `outs.pkl` 已用于验证 66 个季度持有期；绩效结果见下文“选股能力绩效分析”。
 
 完整的修改原因、原代码、新代码和验证过程见 [`summary.md`](./summary.md#7-2023-年后表现排查与三项修复)。
 
@@ -283,6 +291,7 @@ $$
 | 基金经理 | `基金数据/CHINAMUTUALFUNDMANAGER_202605221351(1).csv` | 基金经理匹配和去重 |
 | 基金描述 | `基金数据/CHINAMUTUALFUNDDESCRIPTION_202606031717.csv` | 基金类型、基金公司和基金基本信息 |
 | 宽基指数收益 | `宽基指数日行情/宽基指数收益率.csv` | 市场因子、交易日历和市场累计收益 |
+| 偏股基金基准 | `基金数据/885001.WI.xlsx` | TOP15 超额收益、跟踪误差和信息比率 |
 | 申万行业收益 | `申万一级行业/申万一级行业_with_dailyreturn.feather` | 行业因子 |
 | Barra 风格收益 | `Barra_CNE5/Barra风格因子收益率.feather` | 回归风格因子 |
 | 个股 Barra 暴露 | `Barra_CNE5/*正交后.txt` | 从基金持仓计算真实风格暴露 |
@@ -439,30 +448,45 @@ outs = run_rr_windows(
 )
 ```
 
-### 十分组累计收益
+### 选股能力十分组与 TOP15 回测
 
 ```python
 stock_decile_cum, stock_decile_cum_pivot = build_decile_cum_return(
     outs,
     decile_key="decile_result",
+    include_long_short=True,
 )
 
-timing_decile_cum, timing_decile_cum_pivot = build_decile_cum_return(
+stock_top15_cum, stock_top15_cum_pivot = build_top15_cum_return(
     outs,
-    decile_key="timing_decile_result",
+    return_key="top15_return",
 )
+```
 
-comprehensive_decile_cum, comprehensive_decile_cum_pivot = (
-    build_decile_cum_return(
+累计收益日期使用每个窗口的实际 `summary["sell_date"]`，不再使用组合形成日。
+
+### TOP15 相对 885001.WI 超额回测
+
+```python
+benchmark_885001 = load_benchmark_885001()
+stock_top15_excess, stock_top15_excess_cum_pivot = (
+    build_top15_excess_return(
         outs,
-        decile_key="comprehensive_decile_result",
+        benchmark_data=benchmark_885001,
     )
 )
 ```
 
-### 综合评分季度多空收益
+单期超额收益为 `TOP15 收益 - 基准收益`；累计超额净值采用：
 
-当前代码中第一组是综合评分最高组，第十组是最低组，因此季度多空收益定义为：
+$$
+RelativeNAV_T
+=
+\frac{\prod_{t=1}^{T}(1+r_{TOP15,t})}
+{\prod_{t=1}^{T}(1+r_{Benchmark,t})}
+$$
+
+### 选股能力十分组多空收益
 
 $$
 LongShortReturn_q
@@ -474,19 +498,62 @@ $$
 
 ```python
 (
-    comprehensive_long_short,
-    comprehensive_long_short_summary,
-    comprehensive_long_short_ax,
-) = build_comprehensive_long_short_return(outs)
+    stock_selection_long_short,
+    stock_selection_long_short_summary,
+    stock_selection_long_short_ax,
+) = build_stock_selection_long_short_return(outs)
+
+(
+    stock_selection_monthly_long_short,
+    stock_selection_monthly_long_short_summary,
+    stock_selection_monthly_long_short_ax,
+) = build_decile_monthly_long_short_win_rate(
+    outs,
+    nav_data=raw_data.nav,
+    fund_return_key="fund_return",
+)
 ```
 
-函数会绘制每季度多空收益柱状图，并返回：
+季度多空使用每季初固定的选股能力第一组和第十组；月度回测在该季度内保持名单不变，按完整自然月计算多空收益和胜率。
 
-- `comprehensive_long_short`：季度明细，包括第一组、第十组、多空收益、两组样本数、有效性和胜负标记；
-- `comprehensive_long_short_summary`：总季度数、有效季度数、盈利季度数、胜率和平均季度多空收益；
-- `comprehensive_long_short_ax`：Matplotlib 图对象。
+### 统一绩效指标
 
-只有第一组和第十组收益均有效的季度才进入胜率和均值统计。胜率定义为有效季度中 `long_short_return > 0` 的比例；缺少任一组的季度保留在明细中，但不按 0 收益处理。
+所有绩效统计按季度频率计算：
+
+$$
+AnnualizedReturn = NAV_T^{4/N} - 1
+$$
+
+$$
+AnnualizedVolatility = Std(r_q) \times \sqrt{4}
+$$
+
+最大回撤从初始净值 `1.0` 开始计算。信息比率定义为主动收益均值除以跟踪误差后乘 `sqrt(4)`；TOP15 和十分组各组相对 `885001.WI`，多空组合相对零收益基准。
+
+```python
+# TOP15
+stock_top15_performance_summary
+
+# 十分组第1至第10组及第一组减第十组
+stock_decile_performance_summary
+
+# TOP15超额回测
+stock_top15_excess_summary
+
+# 十分组多空季度和月度胜率
+stock_selection_long_short_summary
+stock_selection_monthly_long_short_summary
+```
+
+当前 `outs.pkl` 的 66 期验证结果：
+
+| 选股能力策略 | 年化收益 | 年化波动率 | 最大回撤 | 信息比率 |
+|---|---:|---:|---:|---:|
+| TOP15 | 11.90% | 20.80% | -35.76% | 0.52 |
+| TOP15 相对 885001.WI 超额净值 | 4.12% | 8.31% | -12.97% | 0.52 |
+| 十分组第一组减第十组 | 3.95% | 7.61% | -16.22% | 0.55 |
+
+十分组多空月度回测包含 198 个有效月份，其中 122 个月为正，月度胜率为 61.62%，平均月度多空收益为 0.368%。
 
 ## 10. 主要输出
 
@@ -511,13 +578,20 @@ $$
 | `comprehensive_top15_return` | 综合 TOP15 下一季度平均收益 |
 | `summary` | 当前窗口日期、基金数量、持仓期、收益和耗时等汇总 |
 
-滚动窗口全部完成后，`build_comprehensive_long_short_return(outs)` 额外生成：
+滚动窗口全部完成后，选股能力回测额外生成：
 
 | 输出变量 | 内容 |
 |---|---|
-| `comprehensive_long_short` | 每季度第一组、第十组及 `第一组 - 第十组` 的多空收益明细 |
-| `comprehensive_long_short_summary` | 有效季度数、盈利季度数、胜率和平均季度多空收益 |
-| `comprehensive_long_short_ax` | 季度多空收益可视化图对象 |
+| `stock_top15_performance_summary` | TOP15 年化收益、年化波动率、最大回撤、信息比率和期末净值 |
+| `stock_decile_performance_summary` | 十分组第 1 至第 10 组及多空组合的统一绩效指标 |
+| `stock_top15_excess_summary` | TOP15 超额胜率、平均超额收益和统一绩效指标 |
+| `stock_top15_excess` | TOP15、885001.WI、单期超额收益和累计超额净值明细 |
+| `stock_selection_long_short` | 选股能力十分组季度多空收益明细 |
+| `stock_selection_long_short_summary` | 季度/月度胜率和多空组合绩效指标 |
+| `stock_selection_monthly_long_short` | 固定季度初名单的逐月多空收益明细 |
+| `stock_selection_monthly_long_short_summary` | 有效月份、获胜月份、月度胜率和平均月度收益 |
+| `stock_decile_cum_pivot` | 十分组及多空组合累计净值曲线数据 |
+| `stock_top15_excess_cum_pivot` | TOP15、885001.WI 和累计超额净值曲线数据 |
 
 当 `keep_intermediate=True` 时还会保留：
 

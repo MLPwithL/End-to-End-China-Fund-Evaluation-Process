@@ -1,9 +1,9 @@
 # Notebook Work Summary
 
-> [Back to project README](./README.md) | [中文版](./summary.md)
+> [English README](./READ_EN.md) | [Chinese README](./README.md) | [中文版](./summary.md)
 
 > Scope: All 15 `.ipynb` files in the current project directory, cross-checked against `data_schema.md` and the data files in the repository.
-> Summary date: 2026-06-10
+> Summary date: 2026-06-15
 
 ## 1. What This Project Does
 
@@ -21,8 +21,9 @@ The main workflow can be summarized as follows:
 8. Calculate factor-by-factor renormalized holdings-based style exposures; combine valid holdings exposures equally with regression exposures and fall back to regression exposures when coverage is insufficient.
 9. Calculate stock-selection, market-timing, and comprehensive capabilities, while enforcing fund-manager uniqueness and fund-company concentration limits.
 10. Run the process quarterly and calculate next-quarter realized returns, decile returns, TOP15 portfolio returns, and cumulative return curves.
-11. Calculate quarterly comprehensive-score long-short returns as the first decile minus the tenth decile, together with the win rate, average quarterly long-short return, and a bar chart.
-12. Calculate quarterly IC, Rank IC, ICIR, annualized ICIR, and significance statistics for stock-selection, market-timing, and comprehensive scores.
+11. For stock-selection rankings, calculate quarterly and monthly decile long-short returns, TOP15 excess returns versus `885001.WI`, and cumulative relative NAV.
+12. Calculate annualized return, annualized volatility, maximum drawdown, and information ratio consistently for the stock-selection TOP15, every decile, the decile long-short portfolio, and the TOP15 excess-return backtest.
+13. Calculate quarterly IC, Rank IC, ICIR, annualized ICIR, and significance statistics for stock-selection, market-timing, and comprehensive scores.
 
 In this project:
 
@@ -43,7 +44,7 @@ In this project:
 | `Mapping/` | Trading-day-to-holdings-report-date mapping and Barra-to-Shenwan industry-name mapping |
 | `备用数据/` | Large raw CSV files and basic read tests |
 | `RR.ipynb` | Prototype for regression and capability evaluation over one time window |
-| `fun_RR_plus.ipynb` | Current main workflow with revised timing capability and IC/Rank IC analysis |
+| `fun_RR_plus.ipynb` | Current main workflow with revised timing capability, stock-selection performance analysis, and IC/Rank IC analysis |
 | `fun_RR.ipynb` | Legacy functionalized workflow for multiple windows and quarterly rolling backtests |
 | `navtotradeday.ipynb` | Aligns NAV dates with trading days and produces the daily fund panel used by the regression |
 | `outs.pkl`, `outs1.pkl` | Serialized rolling-backtest results; `fun_RR.ipynb` explicitly writes `outs1.pkl` |
@@ -52,7 +53,7 @@ In this project:
 
 | Notebook | Main Work | Main Inputs | Main Outputs |
 |---|---|---|---|
-| `fun_RR_plus.ipynb` | Current RR regression, capability scoring, quarterly backtesting, and IC analysis | Daily fund panel, holdings, broad-market/industry/Barra factors, fund managers | `outs`, decile and TOP15 returns, long-short returns, and IC/Rank IC summaries and details |
+| `fun_RR_plus.ipynb` | Current RR regression, capability scoring, quarterly backtesting, stock-selection performance analysis, and IC analysis | Daily fund panel, holdings, broad-market/industry/Barra factors, fund managers, and `885001.WI.xlsx` | `outs`, decile and TOP15 returns, TOP15 excess returns, quarterly/monthly long-short returns, performance metrics, and IC/Rank IC summaries and details |
 | `fun_RR.ipynb` | Legacy functionalized RR regression and quarterly rolling backtest | Mostly the same inputs as the plus version | Historical-methodology `outs`, cumulative returns, and long-short analysis |
 | `RR.ipynb` | Single-window regression prototype and capability calculation | Mostly the same inputs as the functionalized workflows | Regression exposures, holdings exposures, stock-selection capability, and manager-deduplicated TOP15 |
 | `navtotradeday.ipynb` | Aligns fund NAV dates to the nearest trading day | Equity-oriented fund NAV and broad-market index returns | `基金数据/交易日偏股型基金.feather` |
@@ -134,13 +135,31 @@ Main modules:
 - Both summaries include the mean correlation, sample standard deviation, IR, annualized IR, positive-correlation ratio, and t statistic.
 - Manager IDs produced by pandas aggregation are normalized and accepted as tuples, lists, ndarrays, or Series before manager deduplication.
 - The example covers `2009-06-30` through `2026-03-31` and keeps the results in the in-memory `outs` dictionary.
-- `build_decile_cum_return()` links decile returns across periods into cumulative return series and plots cumulative returns for stock-selection, market-timing, and comprehensive capability.
+- `build_decile_cum_return()` links decile returns using the actual sell date; the stock-selection curve also includes cumulative NAV for the first-decile-minus-tenth-decile portfolio.
+- `build_top15_cum_return()` links quarterly stock-selection TOP15 returns into a cumulative NAV series.
+- `load_benchmark_885001()` reads daily closing values for the Wind Equity-Oriented Hybrid Fund Index from `基金数据/885001.WI.xlsx`.
+- `build_top15_excess_return()` calculates TOP15, benchmark, arithmetic excess, active returns, and cumulative relative NAV using actual buy and sell dates.
+- `calculate_performance_metrics()` consistently calculates geometric annualized return, annualized volatility, maximum drawdown, and information ratio.
+- `build_decile_performance_summary()` calculates the unified metrics for stock-selection deciles 1 through 10 versus `885001.WI`; the first-minus-tenth long-short portfolio uses a zero-return benchmark.
 - `build_comprehensive_long_short_return()`:
   - Extracts average returns for the first and tenth deciles from each window's `comprehensive_decile_result`.
   - Calculates each quarterly long-short return as `first-decile average return - tenth-decile average return`.
   - Retains both decile sample counts, quarter validity, and win/loss status.
   - Uses only quarters with valid returns for both deciles when calculating the win rate and average quarterly long-short return.
   - Draws a quarterly long-short bar chart and returns the detail table, summary dictionary, and Matplotlib axes object.
+- `build_stock_selection_long_short_return()` calculates quarterly win rate, annualized return, annualized volatility, maximum drawdown, and information ratio for the stock-selection first-minus-tenth portfolio.
+- `build_decile_monthly_long_short_win_rate()` fixes stock-selection decile membership at each quarter's formation date and calculates full-calendar-month long-short returns and monthly win rates.
+- The notebook appendix lists variable names for performance summaries, period details, cumulative curves, and chart objects.
+
+Verified results from 66 quarterly holding periods in the current `outs.pkl`:
+
+| Stock-Selection Strategy | Annualized Return | Annualized Volatility | Maximum Drawdown | Information Ratio |
+|---|---:|---:|---:|---:|
+| TOP15 | 11.90% | 20.80% | -35.76% | 0.52 |
+| TOP15 relative NAV versus 885001.WI | 4.12% | 8.31% | -12.97% | 0.52 |
+| First decile minus tenth decile | 3.95% | 7.61% | -16.22% | 0.55 |
+
+The monthly long-short backtest contains 198 valid months, of which 122 are positive. The monthly win rate is 61.62%, and the average monthly long-short return is 0.368%.
 
 Referenced data:
 
@@ -152,6 +171,7 @@ Referenced data:
 - `申万一级行业/申万一级行业_with_dailyreturn.feather`
 - `Barra_CNE5/Barra风格因子收益率.feather`
 - `基金数据/CHINAMUTUALFUNDMANAGER_202605221351(1).csv`
+- `基金数据/885001.WI.xlsx`
 - `Barra_CNE5/Beta正交后.txt`
 - `Barra_CNE5/BooktoPrice正交后.txt`
 - `Barra_CNE5/EarningYield正交后.txt`
@@ -432,7 +452,9 @@ Equity holdings + orthogonalized stock-level Barra exposures
 Regression exposures + holdings exposures + fund managers + fund companies
     -> Stock-selection/market-timing/comprehensive capabilities
     -> TOP15 and next-quarter decile backtests
-    -> Comprehensive-score first-minus-tenth-decile quarterly long-short return, win rate, and mean
+    -> Unified stock-selection TOP15/decile performance metrics
+    -> TOP15 excess returns versus 885001.WI
+    -> Stock-selection first-minus-tenth quarterly/monthly long-short returns and win rates
 ```
 
 ## 6. Key Methodological Definitions
@@ -453,9 +475,13 @@ Regression exposures + holdings exposures + fund managers + fund companies
 - Rank IC: Pearson correlation after separately ranking capability values and next-quarter returns.
 - ICIR: Mean quarterly IC divided by its sample standard deviation; annualized quarterly ICIR equals `ICIR × sqrt(4)`.
 - IC t statistic: `mean_ic / (std_ic / sqrt(valid_quarter_count))`.
-- Comprehensive-score quarterly long-short return: The current code assigns the highest score to the first decile and the lowest score to the tenth decile, so the return is `first-decile average return - tenth-decile average return`.
-- Long-short win rate: Among quarters with valid returns for both deciles, the share whose long-short return is strictly greater than zero; incomplete quarters are excluded from the denominator.
-- Average long-short return: Arithmetic mean of `first-decile average return - tenth-decile average return` across valid quarters only.
+- Stock-selection quarterly long-short return: The current code assigns the highest score to the first decile and the lowest score to the tenth decile, so the return is `first-decile average return - tenth-decile average return`.
+- Quarterly/monthly long-short win rate: The share of valid periods with a strictly positive long-short return. Monthly calculations keep quarter-formation membership fixed and begin with the next full calendar month.
+- Annualized return: Geometric annualization of quarterly cumulative NAV, `ending_nav ** (4 / periods) - 1`.
+- Annualized volatility: Quarterly sample volatility multiplied by `sqrt(4)`.
+- Maximum drawdown: The minimum decline from the historical NAV peak, including the initial NAV of 1.0.
+- Information ratio: Mean quarterly active return divided by the sample standard deviation of active returns, multiplied by `sqrt(4)`. TOP15 and individual deciles use `885001.WI`; the long-short portfolio uses a zero-return benchmark.
+- TOP15 cumulative excess NAV: TOP15 cumulative NAV divided by `885001.WI` cumulative NAV.
 - TOP15: No repeated managers and no more than two funds from the same fund company.
 - Out-of-sample return: Buy at the window end date and sell on the last trading day before the end of the following calendar quarter.
 
@@ -474,8 +500,8 @@ The review focused on processing assumptions originally validated mainly on the 
 
 - All three notebook code changes are complete.
 - Notebook JSON, Python syntax, real-data industry-window checks, and focused numerical tests passed.
-- `NAVReturn.ipynb` has not yet been executed to overwrite the formal Feather file.
-- The full 2009-2026 rolling backtest has not yet been rerun with all three repairs.
+- Whether `NAVReturn.ipynb` has been executed against the current formal Feather file still requires confirmation from the data-generation record.
+- The current `outs.pkl` has passed the 66-period performance-analysis checks, but `outs` must be regenerated whenever the upstream formal Feather file is refreshed.
 - The performance figures above are the pre-repair problem baseline, not a claim about repaired investment performance.
 
 ### 7.2 Repair One: Recalculate Fund Returns by `PRICE_DATE`
@@ -787,7 +813,7 @@ Because `NAVReturn.ipynb` now updates the final trading-day panel:
 3. Restart or rerun `load_rr_data()` in `fun_RR_plus.ipynb` so no stale in-memory returns remain.
 4. Run a single-window diagnostic.
 5. Rerun the complete quarterly rolling backtest and build new `outs`.
-6. Call `build_comprehensive_long_short_return(outs)` to generate quarterly comprehensive-score long-short details, win rate, average return, and chart.
+6. Run the stock-selection TOP15, decile, TOP15 excess-return, and quarterly/monthly long-short analysis cells to generate unified performance metrics and charts.
 7. Save the repaired results under a distinct pickle name until they have been reviewed against the pre-repair files.
 
 ## 8. Issues Worth Noting
@@ -817,4 +843,4 @@ Because `NAVReturn.ipynb` now updates the final trading-day panel:
 6. `基金数据/对齐数据日期.ipynb`: Process holdings availability dates.
 7. `navtotradeday.ipynb`: Generate the trading-day-aligned equity-oriented fund panel.
 8. `基金数据/NAVReturn.ipynb`: Recalculate only `return` by `PRICE_DATE` in the final panel.
-9. `fun_RR_plus.ipynb`: Reload the data, run rolling regression and capability backtesting, and generate long-short, IC, Rank IC, and ICIR results.
+9. `fun_RR_plus.ipynb`: Reload the data, run rolling regression and capability backtesting, and generate stock-selection TOP15, decile, excess-return, quarterly/monthly long-short, unified performance-metric, IC, Rank IC, and ICIR results.
