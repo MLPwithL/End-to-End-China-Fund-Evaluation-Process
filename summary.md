@@ -79,6 +79,7 @@
 
 - 定义 `RRRawData`，集中保存 NAV、持仓、宽基、行业和 Barra 数据。
 - `load_rr_data()` 一次性读取并统一日期格式。
+- `load_rr_data()` 在开放式基金过滤后读取 `基金数据/暂停申赎基金20260622.xlsx`，按 `代码` 全局剔除暂停申赎基金，再生成后续窗口样本。
 - `prepare_rr_base_data()` 预先建立精简 NAV 表和按日期合并的因子表，减少多窗口重复计算。
 - `build_rr_data()`：
   - 按时间窗口筛选数据；
@@ -171,6 +172,7 @@
 **直接读取**
 
 - `基金数据/交易日偏股型基金.feather`
+- `基金数据/暂停申赎基金20260622.xlsx`
 - `基金数据/CHINAMUTUALFUNDSTOCKPORTFOLIO.feather`
 - `宽基指数日行情/宽基指数收益率.csv`
 - `申万一级行业/申万一级行业_with_dailyreturn.feather`
