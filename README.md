@@ -1,6 +1,6 @@
 # 正则化基金评价复现
 
-> [English README](./READ_EN.md) | [中文总结](./summary.md) | [English summary](./summary_EN.md)
+> [English README](./README_EN.md) | [中文总结](./summary.md) | [English summary](./summary_EN.md)
 
 本项目用于复现东吴证券金融工程报告《正则化基金评价 2021Q3 组合》（2021 年 7 月 3 日）中的基金评价框架，并在此基础上实现数据清洗、正则化回归、持仓暴露融合、基金能力评分、季度滚动选基和样本外回测。
 
@@ -34,7 +34,9 @@
 | 旧版主流程 | [`fun_RR.ipynb`](./fun_RR.ipynb) |
 | 单窗口模型原型 | [`RR.ipynb`](./RR.ipynb) |
 | NAV 交易日对齐 | [`navtotradeday.ipynb`](./navtotradeday.ipynb) |
-| English README | [`READ_EN.md`](./READ_EN.md) |
+| 剔除港股相关基金 | [`基金数据/exclude_hk_related_funds.py`](./基金数据/exclude_hk_related_funds.py) |
+| Barra 暴露缺失检查 | [`check_missing_barra_exposure.py`](./check_missing_barra_exposure.py) |
+| English README | [`README_EN.md`](./README_EN.md) |
 | 全部 notebook 中文总结 | [`summary.md`](./summary.md) |
 | 全部 notebook 英文总结 | [`summary_EN.md`](./summary_EN.md) |
 | 数据结构盘点 | [`data_schema.md`](./data_schema.md) |
@@ -77,6 +79,12 @@ $$
 - `beta_i^ind`：行业暴露；
 - `beta_j^style`：风格暴露；
 - `alpha + epsilon_t`：模型无法由市场、行业和风格解释的选股收益。
+
+当前行业因子收益来自 `申万一级行业/申万一级行业_with_dailyreturn.feather`，与 Barra 行业暴露文件无关；Barra 只用于风格因子收益和个股风格暴露。当前主流程已切换到 CNE6 日频 Barra 数据：
+
+- 风格因子收益：`Barra_CNE5/barra_cne6_daily_factor_return.parquet`；
+- 个股风格暴露：`Barra_CNE5/barra_cne6_daily_primary.parquet`；
+- 当前风格因子为 `Size`、`Volatility`、`Liquidity`、`Momentum`、`Quality`、`Value`、`Growth`、`Sentiment`、`DividendYield`。
 
 ### 2.2 约束与正则化
 
@@ -220,8 +228,9 @@ $$
 
 当前 `fun_RR_plus.ipynb` 已实现：
 
+- 基金池来自 `基金数据/交易日偏股型基金.feather`，可先使用 `基金数据/exclude_hk_related_funds.py` 剔除 QDII、沪港深、港股通、港股主题及实际持有 `.HK` 股票的基金；
 - 全局剔除 `基金数据/暂停申赎基金20260622.xlsx` 中列出的暂停申赎基金；
-- 窗口内至少 120 个基金观测日；
+- 窗口内至少 60 个基金观测日；
 - 基金存在资产规模大于 1 亿元的记录；
 - 选股、择时和综合能力分别排名；
 - 基金经理去重；
@@ -239,7 +248,7 @@ $$
 当前主流程：
 
 1. 以自然季度末当日或之前最近交易日作为窗口结束日。
-2. 默认向前取 120 个交易日作为回归窗口。
+2. 默认向前取 60 个交易日作为回归窗口。
 3. 在窗口结束日形成选股、择时和综合能力排名。
 4. 使用下一自然季度末当日或之前的最后一个交易日作为卖出日。
 5. 根据复权净值计算各基金实际持有收益。
@@ -288,6 +297,8 @@ $$
 | 数据类别 | 当前主要文件 | 用途 |
 |---|---|---|
 | 基金日频 NAV | `基金数据/交易日偏股型基金.feather` | 基金收益率、基金规模、样本外收益 |
+| 港股相关基金剔除脚本 | `基金数据/exclude_hk_related_funds.py` | 从基金池中剔除 QDII、沪港深、港股通、港股主题及实际持有 `.HK` 股票的基金 |
+| 港股相关基金剔除清单 | `基金数据/交易日偏股型基金_港股相关剔除基金清单.csv` | 记录被剔除基金及剔除原因，运行剔除脚本后生成 |
 | 暂停申赎基金名单 | `基金数据/暂停申赎基金20260622.xlsx` | `load_rr_data()` 全局剔除不可申赎基金 |
 | 基金股票持仓 | `基金数据/CHINAMUTUALFUNDSTOCKPORTFOLIO.feather` | 持仓风格暴露 |
 | 基金经理 | `基金数据/CHINAMUTUALFUNDMANAGER_202605221351(1).csv` | 基金经理匹配和去重 |
@@ -295,8 +306,9 @@ $$
 | 宽基指数收益 | `宽基指数日行情/宽基指数收益率.csv` | 市场因子、交易日历和市场累计收益 |
 | 偏股基金基准 | `基金数据/885001.WI.xlsx` | TOP15 超额收益、跟踪误差和信息比率 |
 | 申万行业收益 | `申万一级行业/申万一级行业_with_dailyreturn.feather` | 行业因子 |
-| Barra 风格收益 | `Barra_CNE5/Barra风格因子收益率.feather` | 回归风格因子 |
-| 个股 Barra 暴露 | `Barra_CNE5/*正交后.txt` | 从基金持仓计算真实风格暴露 |
+| Barra CNE6 风格收益 | `Barra_CNE5/barra_cne6_daily_factor_return.parquet` | 回归风格因子 |
+| Barra CNE6 个股风格暴露 | `Barra_CNE5/barra_cne6_daily_primary.parquet` | 从基金持仓计算真实风格暴露 |
+| Barra 暴露缺失检查脚本 | `check_missing_barra_exposure.py` | 输出基金持仓中缺失某个 Barra 风格因子的股票明细 |
 
 完整数据文件与 notebook 引用关系见 [`summary.md`](./summary.md)。
 
@@ -314,6 +326,7 @@ $$
 ├── 基金数据/
 │   ├── Seperate_Fund.ipynb
 │   ├── NAVReturn.ipynb
+│   ├── exclude_hk_related_funds.py
 │   ├── 对齐数据日期.ipynb
 │   └── FundNAV数据缺失查找汇报.ipynb
 ├── 宽基指数日行情/
@@ -322,10 +335,12 @@ $$
 │   └── Return_Summary.ipynb
 ├── Barra_CNE5/
 │   ├── SeperateBarraFactor.ipynb
-│   └── *正交后.txt
+│   ├── barra_cne6_daily_factor_return.parquet
+│   └── barra_cne6_daily_primary.parquet
 ├── Mapping/
 │   └── mapping.ipynb
-└── 备用数据/
+├── 备用数据/
+└── check_missing_barra_exposure.py
 ```
 
 核心文件：
@@ -335,11 +350,13 @@ $$
 - [`RR.ipynb`](./RR.ipynb)：单窗口逐步骤原型，适合查看模型构建过程。
 - [`navtotradeday.ipynb`](./navtotradeday.ipynb)：基金 NAV 日期与交易日对齐。
 - [`基金数据/Seperate_Fund.ipynb`](./基金数据/Seperate_Fund.ipynb)：基金分类与基础数据整理。
+- [`基金数据/exclude_hk_related_funds.py`](./基金数据/exclude_hk_related_funds.py)：从 `交易日偏股型基金.feather` 中剔除 QDII、沪港深、港股通、港股主题及实际持有 `.HK` 股票的基金，并保持原列名、列顺序和日期字段不变。
 - [`基金数据/NAVReturn.ipynb`](./基金数据/NAVReturn.ipynb)：基金收益率计算。
 - [`基金数据/对齐数据日期.ipynb`](./基金数据/对齐数据日期.ipynb)：持仓披露日期处理。
 - [`宽基指数日行情/Return_Summary.ipynb`](./宽基指数日行情/Return_Summary.ipynb)：宽基指数收益率生成。
 - [`申万一级行业/Return_Summary.ipynb`](./申万一级行业/Return_Summary.ipynb)：申万行业收益率生成。
-- [`Barra_CNE5/SeperateBarraFactor.ipynb`](./Barra_CNE5/SeperateBarraFactor.ipynb)：Barra 因子收益率拆分。
+- [`Barra_CNE5/SeperateBarraFactor.ipynb`](./Barra_CNE5/SeperateBarraFactor.ipynb)：旧版 Barra 因子收益率拆分，当前主流程使用同目录下 CNE6 日频 Parquet。
+- [`check_missing_barra_exposure.py`](./check_missing_barra_exposure.py)：按基金池、持仓快照和最近 Barra 暴露日检查哪些股票缺失某个 CNE6 风格因子值，输出 CSV 明细。
 - [`summary.md`](./summary.md)：全部 15 个 notebook 的工作和数据引用明细。
 - [`data_schema.md`](./data_schema.md)：早期数据盘点和字段说明，部分文件名已经过时。
 
@@ -406,7 +423,9 @@ n_jobs = 1   # 关闭并行，适合调试和排查错误
 6. [`基金数据/对齐数据日期.ipynb`](./基金数据/对齐数据日期.ipynb)：筛选半年报/年报持仓并生成 `available_date`。
 7. [`navtotradeday.ipynb`](./navtotradeday.ipynb)：将基金日期映射到交易日并生成正式基金日频面板。
 8. [`基金数据/NAVReturn.ipynb`](./基金数据/NAVReturn.ipynb)：在正式面板中按 `PRICE_DATE` 仅重算 `return`。
-9. [`fun_RR_plus.ipynb`](./fun_RR_plus.ipynb)：重新加载数据后运行单窗口或季度滚动评价与回测。
+9. [`基金数据/exclude_hk_related_funds.py`](./基金数据/exclude_hk_related_funds.py)：从正式基金池中剔除 QDII、沪港深、港股通、港股主题及实际持有 `.HK` 股票的基金。
+10. [`check_missing_barra_exposure.py`](./check_missing_barra_exposure.py)：可选，检查基金池持仓中哪些股票缺失 CNE6 Barra 风格因子暴露值。
+11. [`fun_RR_plus.ipynb`](./fun_RR_plus.ipynb)：重新加载数据后运行单窗口或季度滚动评价与回测。
 
 部分 notebook 会直接覆盖 Feather 文件。重新运行前应确认执行顺序，并为重要中间数据保留备份。
 
@@ -438,7 +457,7 @@ windows = make_quarterly_rolling_windows(
     global_start_date="2009-06-30",
     global_end_date="2026-03-31",
     raw_data=raw_data,
-    lookback_trading_days=120,
+    lookback_trading_days=60,
 )
 
 outs = run_rr_windows(
@@ -672,7 +691,7 @@ $$
    `fun_RR_plus.ipynb` 使用传统 TM 二次回归，以无约束的 `gamma` 作为择时能力。TM 回归只包含截距、市场收益和市场收益平方项，不使用行业或风格因子，也不与原选股回归共享估计系数。
 
 5. **回归窗口已参数化**  
-   报告假设过去 `T` 期暴露稳定；当前代码将其具体化为默认 120 个交易日的季度滚动窗口。
+   报告假设过去 `T` 期暴露稳定；当前代码将其具体化为默认 60 个交易日的季度滚动窗口。
 
 6. **缺失 NAV 的处理经过扩展**  
    当前代码会对齐基金和因子交易日、填补部分缺失收益，并剔除填充比例过高的基金。这些是为适配当前数据增加的工程处理。
@@ -683,13 +702,14 @@ $$
 ## 12. 当前已知问题
 
 - `NAVReturn.ipynb` 已改为按 `PRICE_DATE` 计算，但必须实际执行后正式 Feather 才会更新。
+- `exclude_hk_related_funds.py` 必须实际执行后，`交易日偏股型基金.feather` 才会剔除 QDII、沪港深、港股通、港股主题及实际持有 `.HK` 股票的基金；脚本会先备份原 Feather，并输出剔除清单。
 - `fun_RR_plus.ipynb` 仍会对基金缺失收益使用前后收益均值及前后填充，可能复制收益并引入未来信息。
 - 有效行业因子的局部缺失仍填 0；当前只自动剔除整个窗口完全断档的行业。
 - 持仓报告期仍按全市场统一最新期选择，且股票 Barra 暴露日期可能晚于持仓报告期。
 - `Seperate_Fund.ipynb` 中 `Passive Index Fund` 没有进入完整的优先级和输出分支。
 - `unknown_nav` 只筛选空分类，没有包含显式的 `Other/Unknown`。
 - `Mapping/mapping.ipynb` 使用旧版绝对路径，当前主流程不依赖该映射。
-- `.txt` 后缀的 Barra 文件实际使用 Feather 格式存储。
+- `.txt` 后缀的旧 Barra 文件实际使用 Feather 格式存储；当前主流程已切换为 CNE6 日频 Parquet。
 - `fun_RR_plus.ipynb` 的注释提到 threading，但实际并行后端为 `loky` 多进程。
 - 基金经理 ID 聚合结果在不同 pandas 版本中可能表现为 tuple 或 ndarray；当前主流程已统一标准化并在筛选端兼容多种序列类型。
 - 多个 notebook 会覆盖原始或中间数据，尚未形成完全可重复的一键式流水线。
